@@ -604,10 +604,6 @@
     <div class="settings-block">
       <h3>Inventario de productos</h3>
       <p>Agrega los productos que vendes en tienda, con su precio y cuántas unidades tienes. Al vender uno en "Pago", el inventario baja solo.</p>
-      <div id="photoWeightHint" style="display:none; align-items:center; gap:8px; margin:0 0 10px; padding:9px 11px; border-radius:12px; background:#F3EAD8; border:1px solid #CBA970; font-size:12.5px; color:#3E2E18;">
-        <span id="photoWeightText" style="flex:1; line-height:1.35;"></span>
-        <button id="optimizePhotosBtn" type="button" style="border:none; background:linear-gradient(120deg,#7A5A32,#BF9A60); color:#fff; font-weight:700; font-size:12px; padding:7px 12px; border-radius:10px; cursor:pointer;">Optimizar</button>
-      </div>
       <div style="position:relative;">
         <div id="productList" style="max-height:clamp(280px, 60vh, 560px); overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; padding-right:30px; scrollbar-width:none;"></div>
         <div id="productScrollTrack" style="position:absolute; top:0; right:0; bottom:0; width:24px; display:none;">
@@ -633,11 +629,6 @@
         <div class="field" style="margin-bottom:0;">
           <input id="newProductColor" placeholder="Color">
         </div>
-      </div>
-      <div class="field" style="margin-top:8px; margin-bottom:0; display:flex; align-items:center; gap:10px;">
-        <img id="newProductPreview" style="display:none; width:48px; height:48px; object-fit:cover; border-radius:8px; border:1px solid var(--line);">
-        <label for="newProductImage" style="flex:1; font-size:12.5px; color:var(--muted); border:1px dashed var(--line); border-radius:10px; padding:8px 10px; text-align:center; cursor:pointer;">📷 Agregar foto del producto (catálogo)</label>
-        <input id="newProductImage" type="file" accept="image/*" style="display:none;">
       </div>
       <button class="btn-main secondary" id="addProductBtn" style="margin-top:10px;">+ Agregar producto</button>
     </div>
@@ -885,43 +876,6 @@ function getFirebaseAuthInstance(){
   let quickAddFromPay = false;
 
   const $ = (id) => document.getElementById(id);
-
-  // Las fotos se muestran pequeñas (44 px en la lista, 52 px en la factura), así que se
-  // guardan a 200 px: se ven igual y pesan unas 5-8 veces menos que a 480 px.
-  const PHOTO_MAX_PX = 200;
-  const PHOTO_QUALITY = 0.72;
-
-  function shrinkDataUrl(dataUrl, maxSize, quality){
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxSize || height > maxSize){
-          if (width > height){ height = Math.round(height * maxSize / width); width = maxSize; }
-          else { width = Math.round(width * maxSize / height); height = maxSize; }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#FFFFFF';              // fondo blanco (las fotos con transparencia no salen negras)
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality || 0.82));
-      };
-      img.onerror = () => resolve(null);
-      img.src = dataUrl;
-    });
-  }
-
-  function resizeImageFile(file, maxSize, quality){
-    return new Promise((resolve) => {
-      if (!file){ resolve(null); return; }
-      const reader = new FileReader();
-      reader.onload = () => { shrinkDataUrl(reader.result, maxSize, quality).then(resolve); };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    });
-  }
 
   // ============================================================
   // RESPALDO EN LA NUBE (Firestore) — el celular es la fuente de verdad.
@@ -1567,14 +1521,6 @@ function getFirebaseAuthInstance(){
     const items = paymentItems(payment);
     const bcv = await getBCVRate();
     const itemImages = {};
-    await Promise.all(items.map(async (item, idx) => {
-      if (item.type === 'product' && item.refId){
-        const prod = products.find(p => p.id === item.refId);
-        if (prod && prod.image){
-          try{ itemImages[idx] = await loadImage(prod.image); }catch(e){ /* sin foto */ }
-        }
-      }
-    }));
     const imageExtra = items.reduce((s, item, idx) => s + (itemImages[idx] ? 24 : 0), 0);
     canvas.height = 960 + Math.max(items.length - 1, 0) * 40 + (bcv ? 55 : 0) + (329 + (bcv ? 23 : 0)) + 30 + 40 + imageExtra;
     const ctx = canvas.getContext('2d');
@@ -2087,13 +2033,11 @@ function getFirebaseAuthInstance(){
     } else {
       list.innerHTML = products.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p => `
         <div class="service-item">
-          <img src="${p.image || ''}" loading="lazy" decoding="async" onerror="this.style.display='none'" style="${p.image ? '' : 'display:none;'} width:44px; height:44px; object-fit:cover; border-radius:8px; margin-right:8px; flex-shrink:0;">
           <div style="flex:1;">
             <div class="service-name">${p.name}${p.size ? ' · Talla ' + p.size : ''}${p.color ? ' · ' + p.color : ''}</div>
             <div class="service-price">${fmtMoney(p.price)} ${stockBadge(p.stock)}</div>
           </div>
           <div class="service-actions">
-            <label style="cursor:pointer; font-size:12px;">📷<input type="file" accept="image/*" style="display:none;" onchange="MaiApp.changeProductImage('${p.id}', this)"></label>
             <button onclick="MaiApp.editProduct('${p.id}')">Editar</button>
             <button onclick="MaiApp.deleteProduct('${p.id}')">Eliminar</button>
           </div>
@@ -2105,44 +2049,7 @@ function getFirebaseAuthInstance(){
     const stockValue = products.reduce((s,p)=> s + (p.price * p.stock), 0);
     $('storeStockValue').textContent = fmtMoney(stockValue).replace('.00','');
     $('storeLowStock').textContent = products.filter(p => p.stock <= 3).length;
-    updatePhotoHint();
     updateProductScrollbar();
-  }
-
-  function photosWeight(){ return products.reduce((n, p) => n + (p.image ? p.image.length : 0), 0); }
-  function fmtMB(n){ return (n / 1048576).toFixed(1).replace('.', ',') + ' MB'; }
-  const HEAVY_PHOTO = 30000;   // caracteres en base64 (~22 KB): por encima de esto la foto se puede achicar
-
-  function updatePhotoHint(){
-    const el = $('photoWeightHint');
-    if (!el) return;
-    const heavy = products.filter(p => p.image && p.image.length > HEAVY_PHOTO).length;
-    if (heavy){
-      $('photoWeightText').textContent = 'Las fotos ocupan ' + fmtMB(photosWeight()) + ' y pueden volver lenta la app. Se pueden achicar sin que se note.';
-      el.style.display = 'flex';
-    } else {
-      el.style.display = 'none';
-    }
-  }
-
-  async function optimizePhotos(){
-    const todo = products.filter(p => p.image && p.image.length > HEAVY_PHOTO);
-    if (!todo.length){ showToast('Las fotos ya están optimizadas'); return; }
-    const before = photosWeight();
-    if (!confirm('Las fotos ocupan ' + fmtMB(before) + '. Se van a achicar ' + todo.length + ' fotos (en la lista y en la factura se verán igual). No se borra ningún producto. ¿Continuar?')) return;
-    showToast('Optimizando fotos...');
-    let done = 0;
-    for (const p of todo){
-      try{
-        const small = await shrinkDataUrl(p.image, PHOTO_MAX_PX, PHOTO_QUALITY);
-        if (small && small.length < p.image.length) p.image = small;   // si no mejora, se deja la original
-      }catch(e){}
-      done++;
-      if (done % 10 === 0) showToast('Optimizando fotos... ' + done + '/' + todo.length);
-    }
-    await saveProducts();
-    render();
-    showToast('Listo: fotos de ' + fmtMB(before) + ' a ' + fmtMB(photosWeight()));
   }
 
   // Barra deslizadora del inventario (Tienda): sube y baja la lista de productos
@@ -2458,17 +2365,13 @@ function getFirebaseAuthInstance(){
     const size = $('newProductSize').value.trim();
     const color = $('newProductColor').value.trim();
     if (!name){ showToast('Escribe el nombre del producto'); return; }
-    const file = $('newProductImage').files[0];
-    const image = await resizeImageFile(file, PHOTO_MAX_PX, PHOTO_QUALITY);
-    products.push({ id: 'pr_' + Date.now(), name, price, stock, size, color, image });
+    products.push({ id: 'pr_' + Date.now(), name, price, stock, size, color });
     await saveProducts();
     $('newProductName').value = '';
     $('newProductPrice').value = '';
     $('newProductStock').value = '';
     $('newProductSize').value = '';
     $('newProductColor').value = '';
-    $('newProductImage').value = '';
-    $('newProductPreview').style.display = 'none';
     render();
     showToast('Producto agregado');
   }
@@ -2492,20 +2395,6 @@ function getFirebaseAuthInstance(){
     await saveProducts();
     render();
     showToast('Producto actualizado');
-  }
-
-  async function changeProductImage(productId, input){
-    const p = products.find(p => p.id === productId);
-    if (!p) return;
-    const file = input.files[0];
-    if (!file) return;
-    const image = await resizeImageFile(file, PHOTO_MAX_PX, PHOTO_QUALITY);
-    if (image){
-      p.image = image;
-      await saveProducts();
-      render();
-      showToast('Foto del producto actualizada');
-    }
   }
 
   async function deleteProduct(productId){
@@ -2595,7 +2484,7 @@ function getFirebaseAuthInstance(){
         clients = data.clients || [];
         payments = data.payments || [];
         services = data.services || [];
-        products = data.products || [];
+        products = (data.products || []).map(p => { const q = Object.assign({}, p); delete q.image; return q; });
         await saveClients();
         await savePayments();
         await saveServices();
@@ -2714,17 +2603,8 @@ function getFirebaseAuthInstance(){
   $('addServiceBtn').addEventListener('click', addService);
   $('addItemBtn').addEventListener('click', () => addItemRow());
   $('addProductBtn').addEventListener('click', addProduct);
-  $('newProductImage').addEventListener('change', () => {
-    const file = $('newProductImage').files[0];
-    const prev = $('newProductPreview');
-    if (!file){ prev.style.display = 'none'; return; }
-    const reader = new FileReader();
-    reader.onload = () => { prev.src = reader.result; prev.style.display = 'block'; };
-    reader.readAsDataURL(file);
-  });
   $('downloadBackupBtn').addEventListener('click', downloadBackup);
   $('shareBackupBtn').addEventListener('click', shareBackup);
-  $('optimizePhotosBtn').addEventListener('click', optimizePhotos);
   $('restoreCloudBtn').addEventListener('click', restoreFromCloud);
   $('forceResyncBtn').addEventListener('click', forceFullResync);
   $('backupReminderBtn').addEventListener('click', shareBackup);
@@ -2739,7 +2619,7 @@ function getFirebaseAuthInstance(){
   $('downloadExcelBtn').addEventListener('click', downloadExcelLedger);
   $('restoreFileInput').addEventListener('change', (e) => restoreBackup(e.target.files[0]));
 
-  window.MaiApp = { editClient, markPaid, deletePayment, editService, deleteService, editProduct, deleteProduct, changeProductImage, showInvoice };
+  window.MaiApp = { editClient, markPaid, deletePayment, editService, deleteService, editProduct, deleteProduct, showInvoice };
 
   // Instalación como app (PWA)
   let deferredInstallPrompt = null;
